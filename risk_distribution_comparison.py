@@ -21,8 +21,8 @@ def get_latest_quarters(df, time_column='time_'):
     return sorted_quarters[0], sorted_quarters[1]
 
 
-def compare_risk_distributions(df, risk_column='risk_category', time_column='time_'):
-    """Compare risk distributions between latest and previous quarter."""
+def get_aggregated_counts(df, time_column='time_', risk_column='risk_category', count_column='count'):
+    """Aggregate counts by quarter and risk category."""
 
     latest_q, previous_q = get_latest_quarters(df, time_column)
 
@@ -31,8 +31,19 @@ def compare_risk_distributions(df, risk_column='risk_category', time_column='tim
 
     categories = ['accept', 'moderate', 'block']
 
-    counts_previous = df_previous[risk_column].value_counts().reindex(categories, fill_value=0)
-    counts_latest = df_latest[risk_column].value_counts().reindex(categories, fill_value=0)
+    # Sum counts across all groups for each risk category
+    counts_previous = df_previous.groupby(risk_column)[count_column].sum().reindex(categories, fill_value=0)
+    counts_latest = df_latest.groupby(risk_column)[count_column].sum().reindex(categories, fill_value=0)
+
+    return counts_previous, counts_latest, previous_q, latest_q
+
+
+def compare_risk_distributions(df, risk_column='risk_category', time_column='time_', count_column='count'):
+    """Compare risk distributions between latest and previous quarter."""
+
+    counts_previous, counts_latest, previous_q, latest_q = get_aggregated_counts(
+        df, time_column, risk_column, count_column
+    )
 
     contingency_table = pd.DataFrame({previous_q: counts_previous, latest_q: counts_latest})
 
@@ -40,6 +51,9 @@ def compare_risk_distributions(df, risk_column='risk_category', time_column='tim
 
     pct_previous = (counts_previous / counts_previous.sum() * 100).round(2)
     pct_latest = (counts_latest / counts_latest.sum() * 100).round(2)
+
+    total_previous = counts_previous.sum()
+    total_latest = counts_latest.sum()
 
     summary = pd.DataFrame({
         f'{previous_q} Count': counts_previous,
@@ -52,7 +66,7 @@ def compare_risk_distributions(df, risk_column='risk_category', time_column='tim
     print("=" * 60)
     print(f"RISK DISTRIBUTION COMPARISON: {previous_q} vs {latest_q}")
     print("=" * 60)
-    print(f"\nSample sizes: {previous_q} = {len(df_previous)}, {latest_q} = {len(df_latest)}")
+    print(f"\nTotal counts: {previous_q} = {total_previous}, {latest_q} = {total_latest}")
     print("\n" + summary.to_string())
     print("\n" + "-" * 60)
     print("CHI-SQUARE TEST FOR HOMOGENEITY")
@@ -77,18 +91,17 @@ def compare_risk_distributions(df, risk_column='risk_category', time_column='tim
     }
 
 
-def plot_risk_comparison(df, risk_column='risk_category', time_column='time_'):
+def plot_risk_comparison(df, risk_column='risk_category', time_column='time_', count_column='count'):
     """Visualize risk distribution comparison between latest and previous quarter."""
 
-    latest_q, previous_q = get_latest_quarters(df, time_column)
-
-    df_latest = df[df[time_column] == latest_q]
-    df_previous = df[df[time_column] == previous_q]
+    counts_previous, counts_latest, previous_q, latest_q = get_aggregated_counts(
+        df, time_column, risk_column, count_column
+    )
 
     categories = ['accept', 'moderate', 'block']
 
-    pct_previous = df_previous[risk_column].value_counts(normalize=True).reindex(categories, fill_value=0) * 100
-    pct_latest = df_latest[risk_column].value_counts(normalize=True).reindex(categories, fill_value=0) * 100
+    pct_previous = (counts_previous / counts_previous.sum() * 100).reindex(categories, fill_value=0)
+    pct_latest = (counts_latest / counts_latest.sum() * 100).reindex(categories, fill_value=0)
 
     x = np.arange(len(categories))
     width = 0.35
@@ -115,34 +128,48 @@ def plot_risk_comparison(df, risk_column='risk_category', time_column='time_'):
 # =============================================================================
 
 def generate_sample_data():
-    """Generate sample customer risk data across multiple quarters."""
+    """Generate sample aggregated customer risk data across multiple quarters."""
 
     np.random.seed(42)
 
-    quarters_config = {
-        'Q1-2024': {'size': 800,  'probs': [0.60, 0.30, 0.10]},
-        'Q2-2024': {'size': 850,  'probs': [0.58, 0.31, 0.11]},
-        'Q3-2024': {'size': 900,  'probs': [0.55, 0.33, 0.12]},
-        'Q4-2024': {'size': 950,  'probs': [0.52, 0.35, 0.13]},
-        'Q1-2025': {'size': 1000, 'probs': [0.50, 0.36, 0.14]},
-        'Q2-2025': {'size': 1100, 'probs': [0.48, 0.37, 0.15]},
-        'Q3-2025': {'size': 1150, 'probs': [0.45, 0.38, 0.17]},
-        'Q4-2025': {'size': 1200, 'probs': [0.42, 0.40, 0.18]},  # previous quarter
-        'Q1-2026': {'size': 1300, 'probs': [0.38, 0.42, 0.20]},  # latest quarter
-    }
-
+    # Define grouping values
+    group_1_values = ['region_A', 'region_B', 'region_C']
+    group_2_values = ['segment_1', 'segment_2']
+    group_3_values = ['channel_X', 'channel_Y', 'channel_Z']
     categories = ['accept', 'moderate', 'block']
 
-    data_frames = []
-    for quarter, config in quarters_config.items():
-        df_quarter = pd.DataFrame({
-            'customer_id': range(config['size']),
-            'risk_category': np.random.choice(categories, size=config['size'], p=config['probs']),
-            'time_': quarter
-        })
-        data_frames.append(df_quarter)
+    quarters_config = {
+        'Q1-2024': [0.60, 0.30, 0.10],
+        'Q2-2024': [0.58, 0.31, 0.11],
+        'Q3-2024': [0.55, 0.33, 0.12],
+        'Q4-2024': [0.52, 0.35, 0.13],
+        'Q1-2025': [0.50, 0.36, 0.14],
+        'Q2-2025': [0.48, 0.37, 0.15],
+        'Q3-2025': [0.45, 0.38, 0.17],
+        'Q4-2025': [0.42, 0.40, 0.18],  # previous quarter
+        'Q1-2026': [0.38, 0.42, 0.20],  # latest quarter
+    }
 
-    return pd.concat(data_frames, ignore_index=True)
+    rows = []
+    for quarter, probs in quarters_config.items():
+        for g1 in group_1_values:
+            for g2 in group_2_values:
+                for g3 in group_3_values:
+                    # Generate random base count for this group
+                    base_count = np.random.randint(50, 200)
+                    for i, risk_cat in enumerate(categories):
+                        # Apply probability with some random variation
+                        count = int(base_count * probs[i] * np.random.uniform(0.8, 1.2))
+                        rows.append({
+                            'group_1': g1,
+                            'group_2': g2,
+                            'group_3': g3,
+                            'time_': quarter,
+                            'risk_category': risk_cat,
+                            'count': count
+                        })
+
+    return pd.DataFrame(rows)
 
 
 # =============================================================================
@@ -155,9 +182,10 @@ if __name__ == "__main__":
 
     # Preview data
     print("Sample data preview:")
-    print(df.head(10))
-    print(f"\nTotal records: {len(df)}")
+    print(df.head(15))
+    print(f"\nTotal rows: {len(df)}")
     print(f"Quarters available: {sorted(df['time_'].unique())}")
+    print(f"Total customer count: {df['count'].sum()}")
     print("\n")
 
     # Run statistical comparison
